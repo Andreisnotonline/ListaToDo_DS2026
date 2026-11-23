@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>To do</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background: #f1f5f9;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: #0f172a; display: flex; justify-content: center; padding: 40px 16px;
+    }
+    .card {
+      width: 100%; max-width: 520px; background: #fff; border-radius: 14px;
+      box-shadow: 0 4px 24px rgba(15, 23, 42, .08); padding: 24px;
+    }
+    h1 { margin: 0 0 16px; font-size: 1.6rem; }
+    form { display: flex; gap: 8px; margin-bottom: 16px; }
+    input[type=text] {
+      flex: 1; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1rem;
+    }
+    input[type=text]:focus { outline: 2px solid #6366f1; border-color: transparent; }
+    button {
+      border: 0; border-radius: 8px; padding: 9px 14px; font-size: .9rem;
+      cursor: pointer; background: #6366f1; color: #fff;
+    }
+    button:hover { filter: brightness(1.08); }
+    button.sec { background: #e2e8f0; color: #0f172a; }
+    button.del { background: #ef4444; }
+    ul { list-style: none; margin: 0; padding: 0; }
+    li {
+      display: flex; align-items: center; gap: 10px; padding: 10px 4px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    li:last-child { border-bottom: 0; }
+    li .title { flex: 1; word-break: break-word; }
+    li.done .title { text-decoration: line-through; color: #94a3b8; }
+    li input[type=text] { padding: 6px 8px; }
+    .vazio, .erro { text-align: center; color: #64748b; padding: 16px 0; }
+    .erro { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>To do</h1>
+
+    <form id="form-nova">
+      <input type="text" id="nova" placeholder="Nova tarefa..." autocomplete="off" required />
+      <button type="submit">Adicionar</button>
+    </form>
+
+    <div id="msg"></div>
+    <ul id="lista"></ul>
+  </main>
+
+  <script>
+    // Endereço da API (servidor Node.js rodando com "node index.js")
+    const API = 'http://localhost:3000/tarefas';
+
+    const lista = document.getElementById('lista');
+    const msg = document.getElementById('msg');
+    const formNova = document.getElementById('form-nova');
+    const inputNova = document.getElementById('nova');
+
+    let tarefas = [];
+    let editandoId = null;
+
+    function mostrarErro(texto) {
+      msg.innerHTML = texto ? `<p class="erro">${texto}</p>` : '';
+    }
+
+    async function carregar() {
+      try {
+        const r = await fetch(API);
+        if (!r.ok) throw new Error();
+        tarefas = await r.json();
+        mostrarErro('');
+      } catch {
+        mostrarErro('Não foi possível conectar à API. O servidor está rodando (node index.js)?');
+        tarefas = [];
+      }
+      render();
+    }
+
+    function render() {
+      lista.innerHTML = '';
+      if (!tarefas.length) {
+        lista.innerHTML = '<li class="vazio" style="justify-content:center">Nenhuma tarefa ainda.</li>';
+        return;
+      }
+      for (const t of tarefas) {
+        const li = document.createElement('li');
+        if (t.completed) li.classList.add('done');
+
+        const check = document.createElement('input');
+        check.type = 'checkbox';
+        check.checked = t.completed;
+        check.onchange = () => atualizar(t.id, { completed: check.checked });
+        li.appendChild(check);
+
+        if (editandoId === t.id) {
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.value = t.title;
+          input.style.flex = '1';
+          input.onkeydown = (e) => {
+            if (e.key === 'Enter') salvarEdicao(t.id, input.value);
+            if (e.key === 'Escape') { editandoId = null; render(); }
+          };
+          li.appendChild(input);
+          setTimeout(() => input.focus(), 0);
+
+          const salvar = document.createElement('button');
+          salvar.textContent = 'Salvar';
+          salvar.onclick = () => salvarEdicao(t.id, input.value);
+          const cancelar = document.createElement('button');
+          cancelar.textContent = 'Cancelar';
+          cancelar.className = 'sec';
+          cancelar.onclick = () => { editandoId = null; render(); };
+          li.append(salvar, cancelar);
+        } else {
+          const span = document.createElement('span');
+          span.className = 'title';
+          span.textContent = t.title;
+          li.appendChild(span);
+
+          const editar = document.createElement('button');
+          editar.textContent = 'Editar';
+          editar.className = 'sec';
+          editar.onclick = () => { editandoId = t.id; render(); };
+
+          const deletar = document.createElement('button');
+          deletar.textContent = 'Deletar';
+          deletar.className = 'del';
+          deletar.onclick = () => deletarTarefa(t.id);
+
+          li.append(editar, deletar);
+        }
+        lista.appendChild(li);
+      }
+    }
+
+    // CRIAR
+    formNova.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const title = inputNova.value.trim();
+      if (!title) return;
+      await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, completed: false }),
+      });
+      inputNova.value = '';
+      carregar();
+    });
+
+    // EDITAR (título e/ou concluída)
+    async function atualizar(id, dados) {
+      await fetch(`${API}/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dados),
+      });
+      carregar();
+    }
+
+    async function salvarEdicao(id, novoTitulo) {
+      const title = novoTitulo.trim();
+      if (!title) return;
+      editandoId = null;
+      await atualizar(id, { title });
+    }
+
+    // DELETAR
+    async function deletarTarefa(id) {
+      if (!confirm('Deletar esta tarefa?')) return;
+      await fetch(`${API}/${id}`, { method: 'DELETE' });
+      carregar();
+    }
+
+    carregar();
+  </script>
+</body>
+</html>
